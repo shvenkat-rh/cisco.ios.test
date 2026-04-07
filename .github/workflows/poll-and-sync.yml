@@ -2,7 +2,7 @@ name: Poll and Sync Issues
 
 on:
   schedule:
-    - cron: "0 */12 * * *"   # every 12 hours
+    - cron: "0 * * * *"   # every hour
   workflow_dispatch:
     inputs:
       force_full_sync:
@@ -23,7 +23,7 @@ env:
   # ──────────────────────────────────────────────
   #  CHANGE THIS to the repo you want to mirror
   # ──────────────────────────────────────────────
-  SOURCE_REPO: "owner/repo"
+  SOURCE_REPO: "ansible-collections/cisco.ios"
 
 permissions:
   contents: write    # commit state.json back to the repo
