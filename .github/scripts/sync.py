@@ -21,8 +21,51 @@ FORCE_FULL_SYNC = os.environ.get("FORCE_FULL_SYNC", "false").lower() == "true"
 STATE_FILE = "state.json"
 CUTOFF_DATE = "2023-01-01T00:00:00Z"
 
-ISSUE_MARKER = "<!-- source-issue-id: {repo}#{number} -->"
+ISSUE_MARKER = "<!-- source-issue-id: {repo} | {number} -->"
 COMMENT_MARKER = "<!-- source-comment-id: {comment_id} -->"
+
+def _sanitize_body(text):
+    """Neutralize GitHub URLs and owner/repo#N references so GitHub won't
+    create back-references on the source repo.
+
+    Wraps them in backticks with a space before '#' so GitHub renders them
+    as inline code instead of clickable cross-references.
+    """
+    import re
+    escaped = re.escape(SOURCE_REPO)
+    # Full URLs first (including optional #fragment at the end)
+    text = re.sub(
+        r'https?://github\.com/' + escaped + r'/(?:issues|pull)/(\d+)(?:#\S*)?',
+        lambda m: f'`{SOURCE_REPO} #{m.group(1)}`',
+        text,
+    )
+    # Short references:  owner/repo#123
+    text = re.sub(
+        escaped + r'#(\d+)\b',
+        lambda m: f'`{SOURCE_REPO} #{m.group(1)}`',
+        text,
+    )
+    # Strip @mentions so mirrored text doesn't ping users
+    text = re.sub(r'(?<!\w)@(\w+)', r'`@\1`', text)
+    return text
+
+
+def _sanitize_title(text):
+    """Sanitize an issue title — backticks don't suppress auto-linking in
+    titles, so we replace the pattern with plain-text wording instead."""
+    import re
+    escaped = re.escape(SOURCE_REPO)
+    text = re.sub(
+        r'https?://github\.com/' + escaped + r'/(?:issues|pull)/(\d+)(?:#\S*)?',
+        lambda m: f'{SOURCE_REPO} issue {m.group(1)}',
+        text,
+    )
+    text = re.sub(
+        escaped + r'#(\d+)\b',
+        lambda m: f'{SOURCE_REPO} issue {m.group(1)}',
+        text,
+    )
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -127,13 +170,12 @@ def ensure_label():
 
 def create_mirror_issue(source_issue):
     src_num = source_issue["number"]
-    title = source_issue["title"]
-    body = source_issue.get("body") or ""
-    url = source_issue["html_url"]
+    title = _sanitize_title(source_issue["title"])
+    body = _sanitize_body(source_issue.get("body") or "")
     marker = ISSUE_MARKER.format(repo=SOURCE_REPO, number=src_num)
 
     mirror_body = (
-        f"**Mirrored from:** [{SOURCE_REPO}#{src_num}]({url})\n\n"
+        f"**Mirrored from:** `{SOURCE_REPO} #{src_num}`\n\n"
         f"{marker}\n\n---\n\n{body}"
     )
     result = api(
@@ -191,13 +233,11 @@ def sync_comments(source_number, mirror_number, synced_comment_ids):
 
         author = sc["user"]["login"]
         created = sc["created_at"]
-        body = sc.get("body") or ""
-        comment_url = sc["html_url"]
+        body = _sanitize_body(sc.get("body") or "")
         marker = COMMENT_MARKER.format(comment_id=cid)
 
         mirror_body = (
-            f"**@{author}** commented on "
-            f"[{created}]({comment_url}):\n\n"
+            f"**{author}** commented on {created}:\n\n"
             f"{marker}\n\n---\n\n{body}"
         )
 
