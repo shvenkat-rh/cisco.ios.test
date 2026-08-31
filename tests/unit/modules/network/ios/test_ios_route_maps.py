@@ -886,3 +886,58 @@ class TestIosRouteMapsModule(TestIosModule):
         ]
         result = self.execute_module(changed=True)
         self.assertEqual(sorted(result["commands"]), sorted(commands))
+
+    def test_ios_route_maps_merged_bare_entry(self):
+        """Bare entries (action+sequence only) must emit the route-map header command.
+
+        Regression test: entries_compare() cmd_len guard silently dropped entries that
+        had no sub-commands (description/match/set absent).
+        """
+        set_module_args(
+            dict(
+                config=[
+                    dict(
+                        route_map="MYMAP",
+                        entries=[
+                            dict(action="deny", sequence=6),
+                            dict(action="permit", sequence=10),
+                        ],
+                    ),
+                ],
+                state="merged",
+            ),
+        )
+        commands = [
+            "route-map MYMAP deny 6",
+            "route-map MYMAP permit 10",
+        ]
+        result = self.execute_module(changed=True)
+        self.assertEqual(sorted(result["commands"]), sorted(commands))
+
+    def test_ios_route_maps_merged_bare_entry_idempotent(self):
+        """Bare entries already on device must produce no commands (idempotency).
+
+        Regression test: verify that once bare entries are applied,
+        a second identical run with state=merged reports changed=False.
+        """
+        set_module_args(
+            dict(
+                config=[
+                    dict(
+                        route_map="BARE_MAP",
+                        entries=[
+                            dict(action="deny", sequence=6),
+                            dict(action="permit", sequence=10),
+                        ],
+                    ),
+                ],
+                state="merged",
+            ),
+        )
+        # load_fixtures() resets the side_effect; override it after to use the bare fixture
+        self.load_fixtures()
+        self.execute_show_command.side_effect = lambda *args, **kwargs: load_fixture(
+            "ios_route_maps_bare.cfg",
+        )
+        result = self.changed(False)
+        self.assertEqual(result["commands"], [])
